@@ -22,6 +22,17 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate stubs, assets and statik (proto, enumer)
+        run: pnpm nx run --nxBail @zitadel/api:generate
+      # Runs after generate: go mod tidy needs the generated pkg/grpc packages to resolve imports.
       - name: Pin oidc library required by the CIMD patch
         run: |
           go get github.com/zitadel/oidc/v3@v3.48.0
@@ -33,16 +44,6 @@ jobs:
             git commit -m "build: go mod tidy for oidc v3.48.0 [skip ci]"
             git push
           fi
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Generate stubs, assets and statik (proto, enumer)
-        run: pnpm nx run --nxBail @zitadel/api:generate
       - name: Unit tests touched by the CIMD patch
         run: |
           go test ./internal/api/oidc/ ./internal/api/grpc/settings/v2/ ./internal/api/authz/ \
