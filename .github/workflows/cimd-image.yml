@@ -11,7 +11,7 @@ permissions:
   contents: write
   packages: write
 env:
-  ZITADEL_VERSION: v4.20.2-cimd.1
+  ZITADEL_VERSION: v4.20.2-cimd.2
   IMAGE: ghcr.io/wildgenie/zitadel-cimd
 jobs:
   build:
@@ -45,6 +45,8 @@ jobs:
             git push
           fi
       - name: Unit tests touched by the CIMD patch
+        # shell: bash adds pipefail, so a failing go test is not masked by tee.
+        shell: bash
         run: |
           go test ./internal/api/oidc/ ./internal/api/grpc/settings/v2/ ./internal/api/authz/ \
             ./internal/cache/... ./internal/query/ ./cmd/setup/ 2>&1 | tee unit-test.log

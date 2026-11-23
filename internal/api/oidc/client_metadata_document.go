@@ -295,7 +295,15 @@ func (r *clientIDMetadataResolver) documentToClient(ctx context.Context, clientI
 	if _, regErr := registrationApplicationTypeToDomain(doc.ApplicationType, doc.RedirectURIs); regErr != nil {
 		return nil, r.invalidClient(ctx, regErr, regErr.ErrorDescription)
 	}
-	grantTypes, regErr := registrationGrantTypesToDomain(doc.GrantTypes)
+	// Unlike registration, a metadata document is published once for every authorization
+	// server, so it may list grant types this server does not offer (claude.ai lists
+	// urn:ietf:params:oauth:grant-type:jwt-bearer). Those are ignored instead of rejecting the
+	// client; a document without any supported grant type is still rejected.
+	docGrantTypes := supportedCIMDGrantTypes(doc.GrantTypes)
+	if len(doc.GrantTypes) > 0 && len(docGrantTypes) == 0 {
+		return nil, r.invalidClient(ctx, nil, "no supported grant_type in client id metadata document")
+	}
+	grantTypes, regErr := registrationGrantTypesToDomain(docGrantTypes)
 	if regErr != nil {
 		return nil, r.invalidClient(ctx, regErr, regErr.ErrorDescription)
 	}
@@ -471,4 +479,15 @@ func capDuration(d, max time.Duration) time.Duration {
 		return max
 	}
 	return d
+}
+
+// supportedCIMDGrantTypes keeps the grant types registrationGrantTypesToDomain understands.
+func supportedCIMDGrantTypes(grantTypes []string) []string {
+	kept := make([]string, 0, len(grantTypes))
+	for _, grantType := range grantTypes {
+		if _, regErr := registrationGrantTypesToDomain([]string{grantType}); regErr == nil {
+			kept = append(kept, grantType)
+		}
+	}
+	return kept
 }

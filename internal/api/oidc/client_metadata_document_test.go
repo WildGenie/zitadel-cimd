@@ -163,6 +163,38 @@ func TestCacheTTLFromResponse(t *testing.T) {
 func TestClientIDMetadataResolver_ResolveClient(t *testing.T) {
 	ctx := authz.NewMockContext("instance", "org", "")
 
+	t.Run("unsupported grant types are ignored", func(t *testing.T) {
+		// claude.ai publishes jwt-bearer next to authorization_code and refresh_token.
+		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
+			return clientRegistrationRequest{
+				RedirectURIs:            []string{clientID + "/callback"},
+				GrantTypes:              []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+				ResponseTypes:           []string{"code"},
+				TokenEndpointAuthMethod: "none",
+			}
+		})
+		resolver := newTestResolver(server.Client(), noop.NewCache[clientIDMetadataCacheIndex, string, *clientIDMetadataCacheEntry]())
+
+		client, err := resolver.ResolveClient(ctx, "instance", server.URL)
+		require.NoError(t, err)
+		assert.Equal(t, []domain.OIDCGrantType{domain.OIDCGrantTypeAuthorizationCode, domain.OIDCGrantTypeRefreshToken}, client.GrantTypes)
+	})
+
+	t.Run("no supported grant type", func(t *testing.T) {
+		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
+			return clientRegistrationRequest{
+				RedirectURIs:            []string{clientID + "/callback"},
+				GrantTypes:              []string{"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+				ResponseTypes:           []string{"code"},
+				TokenEndpointAuthMethod: "none",
+			}
+		})
+		resolver := newTestResolver(server.Client(), noop.NewCache[clientIDMetadataCacheIndex, string, *clientIDMetadataCacheEntry]())
+
+		_, err := resolver.ResolveClient(ctx, "instance", server.URL)
+		require.Error(t, err)
+	})
+
 	t.Run("valid document", func(t *testing.T) {
 		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
 			return clientRegistrationRequest{
