@@ -182,6 +182,24 @@ func TestClientIDMetadataResolver_ResolveClient(t *testing.T) {
 		assert.Equal(t, []string{"http://127.0.0.1/callback/x", "http://localhost/callback/x"}, client.RedirectURIs)
 	})
 
+	t.Run("loopback only document without application type", func(t *testing.T) {
+		// Claude Code publishes no application_type and only localhost/127.0.0.1 callbacks.
+		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
+			return clientRegistrationRequest{
+				RedirectURIs:            []string{"http://localhost/callback", "http://127.0.0.1/callback"},
+				GrantTypes:              []string{"authorization_code", "refresh_token"},
+				ResponseTypes:           []string{"code"},
+				TokenEndpointAuthMethod: "none",
+			}
+		})
+		resolver := newTestResolver(server.Client(), noop.NewCache[clientIDMetadataCacheIndex, string, *clientIDMetadataCacheEntry]())
+
+		client, err := resolver.ResolveClient(ctx, "instance", server.URL)
+		require.NoError(t, err)
+		assert.Equal(t, domain.OIDCApplicationTypeNative, client.ApplicationType)
+		assert.Equal(t, []string{"http://localhost/callback", "http://127.0.0.1/callback"}, client.RedirectURIs)
+	})
+
 	t.Run("web document with loopback redirect", func(t *testing.T) {
 		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
 			return clientRegistrationRequest{

@@ -11,7 +11,7 @@ permissions:
   contents: write
   packages: write
 env:
-  ZITADEL_VERSION: v4.20.2-cimd.3
+  ZITADEL_VERSION: v4.20.2-cimd.4
   IMAGE: ghcr.io/wildgenie/zitadel-cimd
 jobs:
   build:

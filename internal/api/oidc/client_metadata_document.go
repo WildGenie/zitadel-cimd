@@ -318,6 +318,14 @@ func (r *clientIDMetadataResolver) documentToClient(ctx context.Context, clientI
 	// also use loopback redirect URIs, as RFC 8252 section 7.3 allows; the loopback port is
 	// matched loosely by the OIDC library for native clients. A remote site cannot receive a
 	// loopback redirect, so this does not widen where codes can be delivered.
+	// Without application_type, a document whose redirect URIs are all loopback (Claude Code
+	// publishes http://localhost/callback and http://127.0.0.1/callback) can only be a native
+	// client, so it is treated as one.
+	if doc.ApplicationType == "" {
+		if all := trimSpaceSlice(doc.RedirectURIs); len(all) > 0 && len(loopbackURIs(all)) == len(all) {
+			applicationType = domain.OIDCApplicationTypeNative
+		}
+	}
 	if applicationType != domain.OIDCApplicationTypeNative {
 		applicationType = domain.OIDCApplicationTypeWeb
 	}
