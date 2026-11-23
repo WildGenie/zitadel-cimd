@@ -1,0 +1,28 @@
+package setup
+
+import (
+	"context"
+	_ "embed"
+
+	"github.com/zitadel/zitadel/internal/database"
+	"github.com/zitadel/zitadel/internal/eventstore"
+)
+
+var (
+	//go:embed 81.sql
+	addSecurityPolicyClientIDMetadataDocument string
+)
+
+// SecurityPolicies3AddClientIDMetadataDocument adds the CIMD switch column (upstream PR 12316, step 75 there).
+type SecurityPolicies3AddClientIDMetadataDocument struct {
+	dbClient *database.DB
+}
+
+func (mig *SecurityPolicies3AddClientIDMetadataDocument) Execute(ctx context.Context, _ eventstore.Event) error {
+	_, err := mig.dbClient.ExecContext(ctx, addSecurityPolicyClientIDMetadataDocument)
+	return err
+}
+
+func (mig *SecurityPolicies3AddClientIDMetadataDocument) String() string {
+	return "81_security_policies3_add_client_id_metadata_document"
+}

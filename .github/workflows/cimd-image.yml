@@ -1,0 +1,74 @@
+# WildGenie/zitadel-cimd: Zitadel v4.20.2 + upstream PR zitadel/zitadel#12316 (CIMD) image.
+# Mirrors upstream pack.yml (nx pack-linux-arm64 + apps/api/Dockerfile target final) but only
+# for linux/arm64 (A1 is an Ampere host) and pushes to ghcr.io/wildgenie/zitadel-cimd.
+# Why Actions and not A1: A1 has no Go toolchain, ~5 GB free disk and load 15-20 from the swarm.
+name: cimd-image
+on:
+  push:
+    branches: [cimd-v4.20.2]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  packages: write
+env:
+  ZITADEL_VERSION: v4.20.2-cimd.1
+  IMAGE: ghcr.io/wildgenie/zitadel-cimd
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Pin oidc library required by the CIMD patch
+        run: |
+          go get github.com/zitadel/oidc/v3@v3.48.0
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum; then
+            git config user.name "Bilgehan Zeki Özaytaç"
+            git config user.email "zekiozaytac@hotmail.com.tr"
+            git add go.mod go.sum
+            git commit -m "build: go mod tidy for oidc v3.48.0 [skip ci]"
+            git push
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate stubs, assets and statik (proto, enumer)
+        run: pnpm nx run --nxBail @zitadel/api:generate
+      - name: Unit tests touched by the CIMD patch
+        run: |
+          go test ./internal/api/oidc/ ./internal/api/grpc/settings/v2/ ./internal/api/authz/ \
+            ./internal/cache/... ./internal/query/ ./cmd/setup/ 2>&1 | tee unit-test.log
+          go test ./internal/command/ -run 'SecurityPolicy|Security' 2>&1 | tee -a unit-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-log
+          path: unit-test.log
+      - name: Build linux/arm64 API binary
+        run: pnpm nx run --nxBail @zitadel/api:pack-linux-arm64
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: final
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.ZITADEL_VERSION }}
+            ${{ env.IMAGE }}:${{ github.sha }}
