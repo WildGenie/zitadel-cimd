@@ -292,7 +292,8 @@ func (r *clientIDMetadataResolver) documentToClient(ctx context.Context, clientI
 	// an HTTPS URL and its redirect URIs are origin matched against it, so it is always treated
 	// as a web client (a native document would in any case fail the origin match for its
 	// loopback or custom-scheme redirect URIs).
-	if _, regErr := registrationApplicationTypeToDomain(doc.ApplicationType, doc.RedirectURIs); regErr != nil {
+	applicationType, regErr := registrationApplicationTypeToDomain(doc.ApplicationType, doc.RedirectURIs)
+	if regErr != nil {
 		return nil, r.invalidClient(ctx, regErr, regErr.ErrorDescription)
 	}
 	// Unlike registration, a metadata document is published once for every authorization
@@ -312,13 +313,23 @@ func (r *clientIDMetadataResolver) documentToClient(ctx context.Context, clientI
 		return nil, r.invalidClient(ctx, regErr, regErr.ErrorDescription)
 	}
 
+	// Web clients may only redirect to the client_id origin. Native clients (Codex CLI and
+	// Claude Code publish documents with http://127.0.0.1 and http://localhost callbacks) may
+	// also use loopback redirect URIs, as RFC 8252 section 7.3 allows; the loopback port is
+	// matched loosely by the OIDC library for native clients. A remote site cannot receive a
+	// loopback redirect, so this does not widen where codes can be delivered.
+	if applicationType != domain.OIDCApplicationTypeNative {
+		applicationType = domain.OIDCApplicationTypeWeb
+	}
 	redirectURIs := originMatchedURIs(clientURL, doc.RedirectURIs)
+	if applicationType == domain.OIDCApplicationTypeNative {
+		redirectURIs = append(redirectURIs, loopbackURIs(doc.RedirectURIs)...)
+	}
 	if len(redirectURIs) == 0 {
 		return nil, r.invalidClient(ctx, nil, "no redirect_uri matches the client_id origin")
 	}
 	postLogoutRedirectURIs := originMatchedURIs(clientURL, doc.PostLogoutRedirectURIs)
 
-	applicationType := domain.OIDCApplicationTypeWeb
 	authMethod := domain.OIDCAuthMethodTypeNone
 	if compliance := domain.GetOIDCV1Compliance(&applicationType, grantTypes, &authMethod, redirectURIs); compliance.NoneCompliant {
 		return nil, r.invalidClient(ctx, nil, "the client id metadata document is not compliant")
@@ -487,6 +498,22 @@ func supportedCIMDGrantTypes(grantTypes []string) []string {
 	for _, grantType := range grantTypes {
 		if _, regErr := registrationGrantTypesToDomain([]string{grantType}); regErr == nil {
 			kept = append(kept, grantType)
+		}
+	}
+	return kept
+}
+
+// loopbackURIs keeps http redirect URIs on a loopback host (localhost, 127.0.0.1, ::1).
+func loopbackURIs(uris []string) []string {
+	kept := make([]string, 0, len(uris))
+	for _, raw := range trimSpaceSlice(uris) {
+		u, err := url.Parse(raw)
+		if err != nil || !strings.EqualFold(u.Scheme, "http") {
+			continue
+		}
+		switch strings.ToLower(u.Hostname()) {
+		case "localhost", "127.0.0.1", "::1":
+			kept = append(kept, raw)
 		}
 	}
 	return kept

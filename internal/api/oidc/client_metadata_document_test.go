@@ -163,6 +163,41 @@ func TestCacheTTLFromResponse(t *testing.T) {
 func TestClientIDMetadataResolver_ResolveClient(t *testing.T) {
 	ctx := authz.NewMockContext("instance", "org", "")
 
+	t.Run("native document with loopback redirect", func(t *testing.T) {
+		// Codex CLI publishes application_type native with 127.0.0.1 and localhost callbacks.
+		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
+			return clientRegistrationRequest{
+				ApplicationType:         "native",
+				RedirectURIs:            []string{"http://127.0.0.1/callback/x", "http://localhost/callback/x", "https://evil.example/cb"},
+				GrantTypes:              []string{"authorization_code", "refresh_token"},
+				ResponseTypes:           []string{"code"},
+				TokenEndpointAuthMethod: "none",
+			}
+		})
+		resolver := newTestResolver(server.Client(), noop.NewCache[clientIDMetadataCacheIndex, string, *clientIDMetadataCacheEntry]())
+
+		client, err := resolver.ResolveClient(ctx, "instance", server.URL)
+		require.NoError(t, err)
+		assert.Equal(t, domain.OIDCApplicationTypeNative, client.ApplicationType)
+		assert.Equal(t, []string{"http://127.0.0.1/callback/x", "http://localhost/callback/x"}, client.RedirectURIs)
+	})
+
+	t.Run("web document with loopback redirect", func(t *testing.T) {
+		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
+			return clientRegistrationRequest{
+				ApplicationType:         "web",
+				RedirectURIs:            []string{"http://127.0.0.1/callback"},
+				GrantTypes:              []string{"authorization_code"},
+				ResponseTypes:           []string{"code"},
+				TokenEndpointAuthMethod: "none",
+			}
+		})
+		resolver := newTestResolver(server.Client(), noop.NewCache[clientIDMetadataCacheIndex, string, *clientIDMetadataCacheEntry]())
+
+		_, err := resolver.ResolveClient(ctx, "instance", server.URL)
+		require.Error(t, err)
+	})
+
 	t.Run("unsupported grant types are ignored", func(t *testing.T) {
 		// claude.ai publishes jwt-bearer next to authorization_code and refresh_token.
 		server := newMetadataServer(t, http.StatusOK, "", func(clientID string) clientRegistrationRequest {
